@@ -32,6 +32,8 @@ from __future__ import print_function
 # Define some constants, functions
 from common import *
 
+import itertools
+from jinja2 import Template, Environment
 
 class Stencil(object):
 
@@ -641,48 +643,253 @@ def print_interp_to_code(header_only=False):
                                 guards_ = guards__
                         get_for_end(d, field, sten_name)
                 print("}")
+    print_interp_to_do_code_nonuniform(header_only)
     if header_only:
         return
+    print_interp_to_do()
+    
+def print_interp_to_do():
+    field = fields[0]  # 3d
     print(
-        "const Field3D AiolosMesh::interp_to_do(const Field3D &f, CELL_LOC loc) const {")
-    print("  Field3D result((AiolosMesh*)this);")
-    print("  result.allocate();")
-    if not use_field_operator:
-        print("  Indices i0{0,0,0};")
-    print("  if (f.getLocation() != CELL_CENTRE){")
-    print("    // we first need to go back to centre before we can go anywhere else")
-    print("    switch (f.getLocation()){")
-    for d in dirs[field]:
-        print("    case CELL_%sLOW:" % d.upper())
-        if use_field_operator:
-            print("      interp_to_LtoC_%s_%s(result,f,this);" % (field, d))
-        else:
-            print(
-                "      interp_to_LtoC_%s_%s(&result[i0],&f[i0]);" % (field, d))
-        print("      result.setLocation(CELL_CENTRE);")
-        print("      // return or interpolate again")
-        print("      return interp_to(result,loc);")
-        print("      break;")
-    print("    default:")
-    print('      throw BoutException("AiolosMesh::interp_to: Cannot interpolate to %s!",strLocation(loc));')
-    print("    }")
-    print("  }")
-    print("  // we are in CELL_CENTRE and need to go somewhere else ...")
-    print("  switch (loc){")
-    for d in dirs[field]:
-        print("    case CELL_%sLOW:" % d.upper())
-        if use_field_operator:
-            print("      interp_to_CtoL_%s_%s(result,f);" % (field, d))
-        else:
-            print(
-                "      interp_to_CtoL_%s_%s(&result[i0],&f[i0]);" % (field, d))
-        print("      result.setLocation(CELL_%sLOW);" % d.upper())
-        print("      // return or interpolate again")
-        print("      return interp_to(result,loc);")
-        print("      break;")
-    print("    default:")
-    print('      throw BoutException("AiolosMesh::interp_to: Cannot interpolate to %s!",strLocation(loc));')
-    print("    }")
+        "const Field3D AiolosMesh::interp_to_do(const Field3D &f, CELL_LOC loc, REGION region) const {")
+    print("  Mesh * localmesh = const_cast<AiolosMesh*>(this);")
+    print("  CELL_LOC dir = f.getLocation() == CELL_CENTRE ? loc : f.getLocation();")
+    with braces("  switch (dir)"):
+        for d in dirs[field]:
+            print("    case CELL_%sLOW:"%d.upper())
+            if not d == 'z':
+                with braces("      if (is_%s_uniform == 2)"%d):
+                    print("        const_cast<AiolosMesh*>(this)->is_%s_uniform = min(localmesh->coordinates()->d%s,false,RGN_ALL) == max(localmesh->coordinates()->d%s,false,RGN_ALL);"%(d,d,d))
+            with braces("      if (is_%s_uniform)"%d):
+                print("  Field3D result(localmesh);")
+                print("  result.allocate();")
+                if not use_field_operator:
+                    print("  Indices i0{0,0,0};")
+                with braces("  if (f.getLocation() != CELL_CENTRE)"):
+                    print("    // we first need to go back to centre before we can go anywhere else")
+                    if use_field_operator:
+                        print("      interp_to_LtoC_%s_%s(result,f,this);" % (field, d))
+                    else:
+                        print("      interp_to_LtoC_%s_%s(&result[i0],&f[i0]);" % (field, d))
+                    print("      result.setLocation(CELL_CENTRE);")
+                    print("      return interp_to(result, loc, region);")
+                with braces("   else"):
+                    if use_field_operator:
+                        print("      interp_to_CtoL_%s_%s(result,f);" % (field, d))
+                    else:
+                        print("      interp_to_CtoL_%s_%s(&result[i0],&f[i0]);" % (field, d))
+                    print("      result.setLocation(CELL_%sLOW);" % d.upper())
+                    print("      return result;")
+            if not d == 'z':
+                with braces("   else"):
+                    with braces("  if (f.getLocation() != CELL_CENTRE)"):
+                        print("   return interp_to(interp_to_do_non_uniform_%s_LtoC(f), loc, region);"%d)
+                    with braces("  else"):
+                        print("   return interp_to_do_non_uniform_%s_CtoL(f);"%d)
+            print("break;")
+        print("    default:")
+        print('      throw BoutException("AiolosMesh::interp_to: Cannot interpolate to %s!",strLocation(loc));')
+    print('      // gcc thinks we might end up here. So be save and throw.')
+    print('      throw BoutException("AiolosMesh::interp_to - failed to return result!");')
     print("}")
 
+def print_interp_to_do_code_nonuniform(header=False):
+    bounderies={
+        'CtoL' : [2 , 1],
+        'LtoC' : [1 , 2],
+    }
+    env=Environment(trim_blocks=True);
+    for field in ['Field3D']:
+        for direction, onoff in itertools.product(dirs[field],['CtoL','LtoC']):
+            indices = {
+                'CtoL' : {
+                    'i1' : '.%smm()'%direction,
+                    'i2' : '.%sm()'%direction,
+                    'i3' : '',
+                    'i4' : '.%sp()'%direction,
+                },
+                'LtoC' : {
+                    'i1' : '.%sm()'%direction,
+                    'i2' : '',
+                    'i3' : '.%sp()'%direction,
+                    'i4' : '.%spp()'%direction,
+                },
+            }
+            if direction == 'z':
+                # geometry does not vary in z
+                continue
+            kwargs={
+                'direction' : direction,
+                'onoff' : onoff,
+                'field' : field,
+                'direction_upper' : direction.upper(),
+            }
+            sig=Template("{{field}} {{class}}interp_to_do_non_uniform_{{direction}}_{{onoff}}(const {{field}} & in) const")
+            
+            if header:
+                kwargs['class']=''
+                print(sig.render(**kwargs)+";")
+                continue
+            kwargs['class']='AiolosMesh::'
+            kwargs['sig']=sig.render(**kwargs)
+            kwargs.update(indices[onoff])
+            boundary_low, boundary_high = bounderies[onoff]
+            def dataiterator(direction,start,end,z=False):
+                if start >= 0:
+                    start = str(start)
+                else:
+                    start = "LocalN%s %+d"%(direction,start)
+                if end > 0:
+                    end = str(end)
+                else:
+                    end = "LocalN%s %+d"%(direction,end)
+                if z:
+                    nz = 'LocalNz - 1'
+                else:
+                    nz = '0'
+
+                if direction == 'x':
+                    return "{%s, %s - 1, 0,  LocalNy - 1, 0, %s}"%(start,end,nz)
+                else:
+                    return "{0, LocalNx - 1, %s,  %s - 1, 0, %s}"%(start,end,nz)
+
+            kwargs['d02']=dataiterator(direction, 0, 1)
+            kwargs['d12']=dataiterator(direction, 1, 2)
+            kwargs['dm12']=dataiterator(direction, -1, -0)
+            kwargs['dm22']=dataiterator(direction, -2, -1)
+            kwargs['dn2']=dataiterator(direction, boundary_low, -boundary_high)
+            kwargs['dn3']=dataiterator(direction, boundary_low, -boundary_high, field != 'Field2D')
+            kwargs['d03']=dataiterator(direction,  0,  2, field != 'Field2D')
+            kwargs['dm3']=dataiterator(direction, -2, -0, field != 'Field2D')
+            print(env.from_string("""
+    {{sig}} {
+            {{field}} result(const_cast<AiolosMesh*>(this));
+    result.allocate();
+
+    if (! stencil_{{direction}}_{{onoff}}.isSet) {
+            const Field2D & dy = coords->d{{direction}};
+       const_cast<AiolosMesh*>(this)->stencil_{{direction}}_{{onoff}} = Stencil<Field2D>(const_cast<AiolosMesh*>(this));
+{% for i in ["c1", "c2", "c3", "c4"] %}
+          const_cast<AiolosMesh*>(this)->stencil_{{direction}}_{{onoff}}.{{i}}.allocate();
+{% endfor %}
+{% if onoff == 'CtoL' %}
+    for (DataIterator di {{d02}};! di.done() ; di ++) {
+        auto a = 0.5 * dy[di];
+        auto b = dy[di] + 0.5 * dy[di.{{direction}}p()];
+        auto c = dy[di] + dy[di.{{direction}}p()] + 0.5 * dy[di.{{direction}}pp()];
+        auto d = dy[di] + dy[di.{{direction}}p()] + dy[di.{{direction}}p(2)] + 0.5 * dy[di.{{direction}}p(3)] ;
+        auto sten = calc_interp_to_stencil(a,b,c,d);
+{% for i in ["c1", "c2", "c3", "c4"] %}
+        const_cast<AiolosMesh*>(this)->stencil_{{direction}}_{{onoff}}.{{i}}[di]=sten.{{i}};
+{% endfor %}
+    }
+    for (DataIterator di {{d12}};! di.done() ; di ++) {
+        auto a = -0.5 * dy[di.{{direction}}m()];
+        auto b = 0.5 * dy[di];
+        auto c = dy[di] + 0.5 * dy[di.{{direction}}p()];
+        auto d = dy[di] + dy[di.{{direction}}p()] + 0.5 * dy[di.{{direction}}pp()];;
+        auto sten = calc_interp_to_stencil(a,b,c,d);
+{% for i in ["c1", "c2", "c3", "c4"] %}
+        const_cast<AiolosMesh*>(this)->stencil_{{direction}}_{{onoff}}.{{i}}[di]=sten.{{i}};
+{% endfor %}
+    }
+    for (DataIterator di {{dm12}};! di.done() ; di ++) {
+        auto a = -0.5 * dy[di.{{direction}}m(3)] - dy[di.{{direction}}m(2)] - dy[di.{{direction}}m()];
+        auto b = -0.5 * dy[di.{{direction}}mm()] - dy[di.{{direction}}m()];
+        auto c = -0.5 * dy[di.{{direction}}m()];
+        auto d = 0.5 * dy[di];
+        auto sten = calc_interp_to_stencil(a,b,c,d);
+{% for i in ["c1", "c2", "c3", "c4"] %}
+        const_cast<AiolosMesh*>(this)->stencil_{{direction}}_{{onoff}}.{{i}}[di]=sten.{{i}};
+{% endfor %}
+    }
+{% else %} //////////////////////// L -> C
+    for (DataIterator di {{d02}};! di.done() ; di ++) {
+        auto b = 0.5 * dy[di];
+        auto a = -b;
+        auto c = b + dy[di.{{direction}}p()];
+        auto d = c + dy[di.{{direction}}p(2)];
+        auto sten = calc_interp_to_stencil(a,b,c,d);
+{% for i in ["c1", "c2", "c3", "c4"] %}
+          const_cast<AiolosMesh*>(this)->stencil_{{direction}}_{{onoff}}.{{i}}[di]=sten.{{i}};
+{% endfor %}
+    }
+    for (DataIterator di {{dm22}};! di.done() ; di ++) {
+        auto d = 0.5 * dy[di];
+        auto c = -d;
+        auto b = c - dy[di.{{direction}}m()];
+        auto a = b - dy[di.{{direction}}m(2)];
+        auto sten = calc_interp_to_stencil(a,b,c,d);
+{% for i in ["c1", "c2", "c3", "c4"] %}
+        const_cast<AiolosMesh*>(this)->stencil_{{direction}}_{{onoff}}.{{i}}[di]=sten.{{i}};
+{% endfor %}
+    }
+    for (DataIterator di {{dm12}};! di.done() ; di ++) {
+        auto d = -0.5 * dy[di];
+        auto c = d - dy[di.{{direction}}m()];
+        auto b = c - dy[di.{{direction}}m(2)];
+        auto a = b - dy[di.{{direction}}m(3)];
+        auto sten = calc_interp_to_stencil(a,b,c,d);
+{% for i in ["c1", "c2", "c3", "c4"] %}
+        const_cast<AiolosMesh*>(this)->stencil_{{direction}}_{{onoff}}.{{i}}[di]=sten.{{i}};
+{% endfor %}
+    }
+{% endif %}
+    for (DataIterator di {{dn2}} ; ! di.done(); ++di) {
+{% if onoff == 'CtoL' %}
+        auto a = -0.5 * dy[di.{{direction}}mm()] - dy[di.{{direction}}m()];
+        auto b = -0.5 * dy[di.{{direction}}m()];
+        auto c = 0.5 * dy[di];
+        auto d = dy[di] + 0.5 * dy[di.{{direction}}p()];
+{% else %}
+        auto c = 0.5 * dy[di];
+        auto b = -c;
+        auto a = b - dy[di.{{direction}}m()];
+        auto d = c + dy[di.{{direction}}p()];
+{% endif %}
+        auto sten = calc_interp_to_stencil(a,b,c,d);
+{% for i in ["c1", "c2", "c3", "c4"] %}
+          const_cast<AiolosMesh*>(this)->stencil_{{direction}}_{{onoff}}.{{i}}[di]=sten.{{i}};
+{% endfor %}
+      }
+    }
+    for (DataIterator di{{d03}} ;!di.done();++di) {
+        Indices c1,c2,c3,c4 {di.x,di.y,di.z};
+        c1=c2=c3=c4;
+        c1.{{direction}} = 0;
+        c2.{{direction}} = 1;
+        c3.{{direction}} = 2;
+        c4.{{direction}} = 3;
+        result[di] = 
+{% for c,i in [["c1",i1], ["c2",i2], ["c3",i3], ["c4",i4]] %}
+            + stencil_{{direction}}_{{onoff}}.{{c}}[di] * in[{{c}}]
+{% endfor %}
+    ;  }
+    for (DataIterator di{{dn3}};!di.done();++di) {
+      result[di] = 
+{% for c,i in [["c1",i1], ["c2",i2], ["c3",i3], ["c4",i4]] %}
+            + stencil_{{direction}}_{{onoff}}.{{c}}[di] * in[di{{i}}]
+{% endfor %}
+    ;
+    }
+    for (DataIterator di{{dm3}} ;!di.done();++di) {
+        Indices c1,c2,c3,c4 {di.x,di.y,di.z};
+        c1=c2=c3=c4;
+        c1.{{direction}} = LocalN{{direction}} - 4;
+        c2.{{direction}} = LocalN{{direction}} - 3;
+        c3.{{direction}} = LocalN{{direction}} - 2;
+        c4.{{direction}} = LocalN{{direction}} - 1;
+        result[di] = 
+{% for c,i in [["c1",i1], ["c2",i2], ["c3",i3], ["c4",i4]] %}
+            + stencil_{{direction}}_{{onoff}}.{{c}}[di] * in[{{c}}]
+{% endfor %}
+    ;  }
+{% if onoff == 'LtoC' %}
+    result.setLocation(CELL_CENTRE);
+{% else %}
+    result.setLocation(CELL_{{direction_upper}}LOW);
+{% endif %}
+    return result;
+}
+    """).render(**kwargs))
 use_field_operator = False

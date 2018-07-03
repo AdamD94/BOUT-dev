@@ -59,25 +59,18 @@ public:
 
   // virtual const Field3D interp_to(const Field3D &var, CELL_LOC loc) const;
 
-  //virtual const Field3D interp_to(const Field3D &var, CELL_LOC loc) const;
-  
   virtual const Field3D interp_to(const Field3D &f , CELL_LOC loc, REGION region) override {
-    return ((const AiolosMesh*)this)->interp_to(f,loc);
+    return ((const AiolosMesh*)this)->interp_to(f, loc, region);
   }
-  virtual const Field3D interp_to(const Field3D &f , CELL_LOC loc) const {
+  virtual const Field3D interp_to(const Field3D &f , CELL_LOC loc, REGION region) const {
     ASSERT2(f.getMesh() == this);
     if (loc == f.getLocation() || loc == CELL_DEFAULT) {
       return f;
     } else {
-      return interp_to_do(f, loc);
+      return interp_to_do(f, loc, region);
     }
   }
-  virtual const Field2D interp_to(const Field2D &f , CELL_LOC loc, REGION region) override {
-    return ((const AiolosMesh*)this)->interp_to(f,loc);
-  }
-  virtual const Field2D interp_to(const Field2D &f , CELL_LOC loc) const {
-    return f;
-  }
+
 
   virtual void derivs_init(Options *option) override;
 
@@ -86,11 +79,48 @@ public:
   bool isAiolos = true;
 #endif
 private:
-  const Field3D interp_to_do(const Field3D &f, CELL_LOC loc) const;
+  int is_x_uniform;
+  int is_y_uniform;
+  int is_z_uniform;
+  const Field3D interp_to_do(const Field3D &f, CELL_LOC loc, REGION region) const;
+
+  template <typename T>
+  struct Stencil {
+    T c1, c2, c3, c4;
+    bool isSet;
+    Stencil() : isSet(false) {};
+    Stencil(T c1, T c2, T c3, T c4) : c1(c1), c2(c2), c3(c3), c4(c4), isSet(true) {};
+    template<typename ... Args>
+    Stencil(Args && ... args) : c1(args ...), c2(args ...), c3(args ...), c4(args ...), isSet(false) {};
+  };
+
+  Stencil<BoutReal> calc_interp_to_stencil(BoutReal a, BoutReal b, BoutReal c,
+                                       BoutReal d) const {
+    auto ab = a * b;
+    auto cd = c * d;
+    auto bma = b - a;
+    auto cma = c - a;
+    auto cmb = c - b;
+    auto dma = d - a;
+    auto bmd = b - d;
+    auto dmc = d - c;
+    auto s1 = bma * cma * dma;
+    auto s2 = bma * cmb * bmd;
+    auto s3 = cma * cmb * dmc;
+    auto s4 = dma * bmd * dmc;
+    auto e = cd * b / s1;
+    auto f = a * cd / s2;
+    auto g = ab * d / s3;
+    auto h = ab * c / s4;
+    return {e,f,g,h};
+  }
+
+  Stencil<Field2D> stencil_x_CtoL, stencil_x_LtoC, stencil_y_CtoL, stencil_y_LtoC;
 
 #include "aiolos_derivs.hxx"
 
 #include "aiolos_stencils.hxx"
 
 #include "aiolos_interp_to.hxx"
+
 };

@@ -247,7 +247,7 @@ void Field3D::setLocation(CELL_LOC new_location) {
     if (new_location != CELL_CENTRE && new_location != CELL_DEFAULT) {
       throw BoutException("Field3D: Trying to set off-centre location on "
                           "non-staggered grid\n"
-                          "         Did you mean to enable staggered grids?");
+                          "         Did you mean to enable staggerGrids?");
     }
 #endif
     location = CELL_CENTRE;
@@ -283,7 +283,8 @@ const DataIterator Field3D::end() const {
 
 const IndexRange Field3D::region(REGION rgn) const {
   switch(rgn) {
-  case RGN_ALL: {
+  case RGN_ALL:
+  case RGN_NOZ:{
     return IndexRange{0, nx-1,
         0, ny-1,
         0, nz-1};

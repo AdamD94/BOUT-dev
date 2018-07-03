@@ -41,6 +41,10 @@ class ParseException;
 #include <memory>
 #include <exception>
 
+#include "bout/dataiterator.hxx"
+class Mesh;
+extern Mesh * mesh;
+
 //////////////////////////////////////////////////////////
 
 /*!
@@ -60,7 +64,13 @@ public:
 
   /// Generate a value at the given coordinates (x,y,z,t)
   /// This should be deterministic, always returning the same value given the same inputs
-  virtual double generate(double x, double y, double z, double t) = 0;
+  virtual double generate(double x, double y, double z, double t) {
+    DataIterator i{0,0,0,0,0,0};
+    return generate(x,y,z,t,i,mesh);
+  }
+
+  /// Some function require the current mesh
+  virtual double generate(double x, double y, double z, double t, const DataIterator & i,  Mesh * mesh) = 0;
 
   /// Create a string representation of the generator, for debugging output
   virtual const std::string str() {return std::string("?");}
@@ -87,7 +97,7 @@ public:
   /// @param[in] g     The class inheriting from FieldGenerator. When recognised
   ///                  in an expression, the clone() function will be called
   ///                  to build a tree of generators
-  void addGenerator(std::string name, std::shared_ptr<FieldGenerator> g);
+  void addGenerator(const std::string &name, std::shared_ptr<FieldGenerator> g);
 
   /// Add a binary operator such as +,-,*,/,^
   ///
@@ -122,7 +132,7 @@ private:
   /// Lexing info, used when splitting input into tokens
   struct LexInfo {
     
-    LexInfo(std::string input);
+    LexInfo(const std::string &input);
     
     signed char curtok;  ///< Current token. -1 for number, -2 for string, 0 for "end of input"
     double curval; ///< Value if a number
@@ -154,7 +164,7 @@ class FieldBinary : public FieldGenerator {
 public:
   FieldBinary(std::shared_ptr<FieldGenerator> l, std::shared_ptr<FieldGenerator> r, char o) : lhs(l), rhs(r), op(o) {}
   std::shared_ptr<FieldGenerator> clone(const std::list<std::shared_ptr<FieldGenerator> > args);
-  double generate(double x, double y, double z, double t);
+  double generate(double x, double y, double z, double t, const DataIterator &i, Mesh *localmesh);
 
   const std::string str() {return std::string("(")+lhs->str()+std::string(1,op)+rhs->str()+std::string(")");}
 private:
@@ -167,7 +177,7 @@ class FieldValue : public FieldGenerator {
 public:
   FieldValue(double val) : value(val) {}
   std::shared_ptr<FieldGenerator> clone(const std::list<std::shared_ptr<FieldGenerator> > UNUSED(args)) { return std::shared_ptr<FieldGenerator>(std::shared_ptr<FieldGenerator>( new FieldValue(value))); }
-  double generate(double UNUSED(x), double UNUSED(y), double UNUSED(z), double UNUSED(t)) { return value; }
+  double generate(double UNUSED(x), double UNUSED(y), double UNUSED(z), double UNUSED(t), const DataIterator & UNUSED(i),  Mesh * UNUSED(mesh)) { return value; }
   const std::string str() {
     std::stringstream ss;
     ss << value;

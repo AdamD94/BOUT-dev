@@ -149,7 +149,8 @@ const Vector2D DDZ(const Vector2D &v, CELL_LOC outloc, DIFF_METHOD method, REGIO
 
 const Field3D D2DX2(const Field3D &f, CELL_LOC outloc, DIFF_METHOD method, REGION region) {
   
-  Field3D result = f.getMesh()->indexD2DX2(f, outloc, method, region) / SQ(f.getMesh()->coordinates()->dx);
+  Field3D result = f.getMesh()->indexD2DX2(f, outloc, method, region);
+  result /= SQ(f.getMesh()->coordinates()->dx.get(result.getLocation()));
   
   if(f.getMesh()->coordinates()->non_uniform) {
     // Correction for non-uniform f.getMesh()
@@ -163,7 +164,8 @@ const Field3D D2DX2(const Field3D &f, CELL_LOC outloc, DIFF_METHOD method, REGIO
 }
 
 const Field2D D2DX2(const Field2D &f, CELL_LOC outloc, DIFF_METHOD method, REGION region) {
-  Field2D result = f.getMesh()->indexD2DX2(f, outloc, method, region) / SQ(f.getMesh()->coordinates()->dx);
+  Field2D result = f.getMesh()->indexD2DX2(f, outloc, method, region);
+  result /= SQ(f.getMesh()->coordinates()->dx.get(result.getLocation()));
 
   if(f.getMesh()->coordinates()->non_uniform) {
     // Correction for non-uniform f.getMesh()
@@ -177,7 +179,8 @@ const Field2D D2DX2(const Field2D &f, CELL_LOC outloc, DIFF_METHOD method, REGIO
 
 const Field3D D2DY2(const Field3D &f, CELL_LOC outloc, DIFF_METHOD method, REGION region) {
   
-  Field3D result = f.getMesh()->indexD2DY2(f, outloc, method, region) / SQ(f.getMesh()->coordinates()->dy);
+  Field3D result = f.getMesh()->indexD2DY2(f, outloc, method, region);
+  result /= SQ(f.getMesh()->coordinates()->dy.get(result.getLocation()));
 
   if(f.getMesh()->coordinates()->non_uniform) {
     // Correction for non-uniform f.getMesh()
@@ -191,7 +194,8 @@ const Field3D D2DY2(const Field3D &f, CELL_LOC outloc, DIFF_METHOD method, REGIO
 }
 
 const Field2D D2DY2(const Field2D &f, CELL_LOC outloc, DIFF_METHOD method, REGION region) {
-  Field2D result = f.getMesh()->indexD2DY2(f, outloc, method, region) / SQ(f.getMesh()->coordinates()->dy);
+  Field2D result = f.getMesh()->indexD2DY2(f, outloc, method, region);
+  result /= SQ(f.getMesh()->coordinates()->dy.get(result.getLocation()));
   if(f.getMesh()->coordinates()->non_uniform) {
     // Correction for non-uniform f.getMesh()
     result += f.getMesh()->coordinates()->d1_dy * f.getMesh()->indexDDY(f, outloc, DIFF_DEFAULT, region) / f.getMesh()->coordinates()->dy;
@@ -215,19 +219,27 @@ const Field2D D2DZ2(const Field2D &f, CELL_LOC outloc, DIFF_METHOD method, REGIO
  *******************************************************************************/
 
 const Field3D D4DX4(const Field3D &f, CELL_LOC outloc, DIFF_METHOD method, REGION region) {
-  return f.getMesh()->indexD4DX4(f, outloc, method, region) / SQ(SQ(f.getMesh()->coordinates()->dx));
+  Field3D result = f.getMesh()->indexD4DX4(f, outloc, method, region);
+  result /= SQ(SQ(f.getMesh()->coordinates()->dx.get(result.getLocation())));
+  return result;
 }
 
 const Field2D D4DX4(const Field2D &f, CELL_LOC outloc, DIFF_METHOD method, REGION region) {
-  return f.getMesh()->indexD4DX4(f, outloc, method, region) / SQ(SQ(f.getMesh()->coordinates()->dx));
+  Field2D result = f.getMesh()->indexD4DX4(f, outloc, method, region);
+  result /= SQ(SQ(f.getMesh()->coordinates()->dx.get(result.getLocation())));
+  return result;
 }
 
 const Field3D D4DY4(const Field3D &f, CELL_LOC outloc, DIFF_METHOD method, REGION region) {
-  return f.getMesh()->indexD4DY4(f, outloc, method, region) / SQ(SQ(f.getMesh()->coordinates()->dy));
+  Field3D result = f.getMesh()->indexD4DY4(f, outloc, method, region);
+  result /= SQ(SQ(f.getMesh()->coordinates()->dy.get(result.getLocation())));
+  return result;
 }
 
 const Field2D D4DY4(const Field2D &f, CELL_LOC outloc, DIFF_METHOD method, REGION region) {
-  return f.getMesh()->indexD4DY4(f, outloc, method, region) / SQ(SQ(f.getMesh()->coordinates()->dy));
+  Field2D result = f.getMesh()->indexD4DY4(f, outloc, method, region);
+  result /= SQ(SQ(f.getMesh()->coordinates()->dy.get(result.getLocation())));
+  return result;
 }
 
 const Field3D D4DZ4(const Field3D &f, CELL_LOC outloc, DIFF_METHOD method, REGION region) {
@@ -263,7 +275,7 @@ const Field2D D2DXDY(const Field2D &f, CELL_LOC outloc, DIFF_METHOD method, REGI
  * ** Applies Neumann boundary in Y, communicates
  */
 const Field3D D2DXDY(const Field3D &f, CELL_LOC outloc, DIFF_METHOD method, REGION region) {
-  Field3D dfdy = DDY(f, outloc, method, region);
+  Field3D dfdy = DDY(f, outloc, method, RGN_NOY);
   f.getMesh()->communicate(dfdy);
   return DDX(dfdy, outloc, method, region);
 }
@@ -308,22 +320,23 @@ const Field3D D2DYDZ(const Field3D &f, CELL_LOC outloc, DIFF_METHOD method, REGI
   result.allocate();
   result.setLocation(f.getLocation());
   ASSERT1(method == DIFF_DEFAULT);
+  Field2D thisdy = f.getMesh()->coordinates()->dy.get(result.getLocation());
   for(int i=f.getMesh()->xstart;i<=f.getMesh()->xend;i++)
     for(int j=f.getMesh()->ystart;j<=f.getMesh()->yend;j++)
       for(int k=0;k<f.getMesh()->LocalNz;k++) {
         int kp = (k+1) % (f.getMesh()->LocalNz);
         int km = (k-1+f.getMesh()->LocalNz) % (f.getMesh()->LocalNz);
-        result(i,j,k) = 0.25*( +(f(i,j+1,kp) - f(i,j-1,kp))/(f.getMesh()->coordinates()->dy(i,j+1))
-                               -(f(i,j+1,km) - f(i,j-1,km))/(f.getMesh()->coordinates()->dy(i,j-1)) )
+        result(i,j,k) = 0.25*( +(f(i,j+1,kp) - f(i,j-1,kp))/thisdy(i,j+1)
+                               -(f(i,j+1,km) - f(i,j-1,km))/thisdy(i,j-1) )
                     / f.getMesh()->coordinates()->dz;
       }
   // TODO: use region aware implementation
   /*
     for (auto i : f.region(region)){
     result[i] = 0.25*( +(f[i.offset(0,1, 1)] - f[i.offset(0,-1, 1)])
-                                 / (f.getMesh()->coordinates()->dy[i.yp()])
+                                 / thisdy[i.yp()]
                        -(f[i.offset(0,1,-1)] - f[i.offset(0,-1,-1)])
-                                 / (f.getMesh()->coordinates()->dy[i.ym()]))
+                                 / thisdy[i.ym()])
       / f.getMesh()->coordinates()->dz;
       }*/
   return result;

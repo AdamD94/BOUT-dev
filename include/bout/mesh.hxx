@@ -49,6 +49,7 @@ class Mesh;
 #include "bout_types.hxx"
 #include "field2d.hxx"
 #include "field3d.hxx"
+#include "flexible.hxx"
 #include "datafile.hxx"
 #include "options.hxx"
 
@@ -145,6 +146,16 @@ class Mesh {
   ///
   /// @returns zero if successful, non-zero on failure
   int get(Field2D &var, const string &name, BoutReal def=0.0);
+
+  template <typename F>
+  int get(Flexible<F> &var, const string &name, BoutReal def=0.0){
+    // First read from the file
+    F tempvar(this);
+    int retval = get(tempvar, name, def);
+    // then initialize the Flexible<F>
+    var = tempvar;
+    return retval;
+  }
 
   /// Get a Field3D from the input source
   ///
@@ -668,18 +679,18 @@ class Mesh {
   }
   Region<Ind3D> &getRegion3D(const std::string &region_name);
   Region<Ind2D> &getRegion2D(const std::string &region_name);
-  
+
   /// Add a new region to the region_map for the data iterator
   ///
   /// Outputs an error message if region_name already exists
-  void addRegion(const std::string &region_name, Region<> region){
+  void addRegion(const std::string &region_name, const Region<> &region) {
     return addRegion3D(region_name, region);
   }
-  void addRegion(const std::string &region_name, Region<Ind2D> region){
+  void addRegion(const std::string &region_name, const Region<Ind2D> &region) {
     return addRegion2D(region_name, region);
   }
-  void addRegion3D(const std::string &region_name, Region<Ind3D> region);
-  void addRegion2D(const std::string &region_name, Region<Ind2D> region);
+  void addRegion3D(const std::string &region_name, const Region<Ind3D> &region);
+  void addRegion2D(const std::string &region_name, const Region<Ind2D> &region);
 
   /// Converts an Ind2D to an Ind3D using calculation
   Ind3D ind2Dto3D(const Ind2D &ind2D, int jz = 0){
@@ -700,7 +711,12 @@ class Mesh {
   ///
   /// Creates RGN_{ALL,NOBNDRY,NOX,NOY}
   void createDefaultRegions();
-
+  
+  /*!
+   * Return the parallel transform, setting it if need be
+   */
+  ParallelTransform& getParallelTransform();
+  
  protected:
   
   GridDataSource *source; ///< Source for grid data
@@ -709,10 +725,6 @@ class Mesh {
 
   Options *options; ///< Mesh options section
   
-  /*!
-   * Return the parallel transform, setting it if need be
-   */
-  ParallelTransform& getParallelTransform();
 
   PTptr transform; ///< Handles calculation of yup and ydown
 
@@ -722,10 +734,10 @@ class Mesh {
   /// Calculates the size of a message for a given x and y range
   int msg_len(const vector<FieldData*> &var_list, int xge, int xlt, int yge, int ylt);
   
-  // Initialise derivatives
+  /// Initialise derivatives
   virtual void derivs_init(Options* options);
   
-  // Loop over mesh, applying a stencil in the X direction
+  /// Loop over mesh, applying a stencil in the X direction
   virtual const Field2D applyXdiff(const Field2D &var, deriv_func func,
                            CELL_LOC loc = CELL_DEFAULT,
                            REGION region = RGN_NOBNDRY);

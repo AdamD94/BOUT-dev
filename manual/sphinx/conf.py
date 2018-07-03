@@ -35,6 +35,23 @@ sys.path.append("../../tools/pylib")
 # Are we running on readthedocs?
 on_readthedocs = os.environ.get("READTHEDOCS") == "True"
 
+if on_readthedocs:
+    from unittest.mock import MagicMock
+
+    class Mock(MagicMock):
+        __all__ = ["foo",]
+        @classmethod
+        def __getattr__(cls, name):
+            return MagicMock()
+
+    MOCK_MODULES = [
+        'boutcore',
+        'bunch',
+        'h5py',
+        'netCDF4',
+    ]
+    sys.modules.update((mod_name, Mock()) for mod_name in MOCK_MODULES)
+
 # readthedocs currently runs out of memory if we actually dare to try to do this
 if has_breathe:
     # Run doxygen to generate the XML sources
@@ -50,7 +67,8 @@ if has_breathe:
                                      outtypes=("file"),
                                      project="BOUT++",
                                      rootpath='../doxygen/bout/xml',
-                                     suffix='rst')
+                                     suffix='rst',
+                                     quiet=False)
     apidoc_args.rootpath = os.path.abspath(apidoc_args.rootpath)
     if not os.path.isdir(apidoc_args.destdir):
         if not apidoc_args.dryrun:
@@ -76,7 +94,10 @@ if has_breathe:
 # ones.
 extensions = ['sphinx.ext.coverage',
               'sphinx.ext.mathjax',
-              'sphinx.ext.autodoc']
+              'sphinx.ext.autodoc',
+              'sphinx.ext.napoleon',
+              'sphinx.ext.todo',
+]
 
 if has_breathe:
     extensions.append('breathe')
@@ -144,6 +165,9 @@ numfig = True
 # The default role for text marked up `like this`
 default_role = 'any'
 
+# Handle multiple parameters on one line correctly (in Python docs)
+napoleon_use_param = False
+
 # -- Options for HTML output ----------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
@@ -165,6 +189,19 @@ else:
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
+
+# If given, this must be the name of an image file (path relative to
+# the configuration directory) that is the favicon of the docs. Modern
+# browsers use this as the icon for tabs, windows and bookmarks. It
+# should be a Windows-style icon file (.ico), which is 16x16 or 32x32
+# pixels large. Default: None.
+html_favicon = 'favicon.ico'
+
+# If this is not None, a \u2018Last updated on:\u2019 timestamp is
+# inserted at every page bottom, using the given strftime()
+# format. The empty string is equivalent to '%b %d, %Y' (or a
+# locale-dependent equivalent).
+html_last_updated_fmt = ''
 
 
 # -- Options for HTMLHelp output ------------------------------------------

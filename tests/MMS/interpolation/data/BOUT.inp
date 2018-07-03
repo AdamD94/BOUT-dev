@@ -8,7 +8,7 @@ periodicY=true
 [MESH]
 MXG=2
 MYG=2
-type=aiolos
+#type=aiolos
 dy=1/ny
 dx=1/nx
 dz=1/mz
